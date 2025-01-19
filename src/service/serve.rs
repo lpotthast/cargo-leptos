@@ -147,6 +147,13 @@ impl ServerProcess {
             cmd.args(bin_args);
 
             let handle = tokio_process_tools::ProcessHandle::spawn("server", cmd)?;
+            let _stdout_inspector = handle.stdout().inspect(|line| {
+                log::info!(line);
+            });
+            let _stderr_inspector = handle.stdout().inspect(|line| {
+                log::error!(line);
+            });
+
             let port = self
                 .envs
                 .iter()
