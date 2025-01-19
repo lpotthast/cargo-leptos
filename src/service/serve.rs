@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     config::Project,
     ext::{anyhow::Result, append_str_to_filename, determine_pdb_filename, fs},
@@ -7,11 +5,9 @@ use crate::{
     signal::{Interrupt, ReloadSignal, ServerRestart},
 };
 use camino::Utf8PathBuf;
-use tokio::{
-    process::{Child, Command},
-    select,
-    task::JoinHandle,
-};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::{process::Command, select, task::JoinHandle};
 
 pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
     let mut int = Interrupt::subscribe_shutdown();
@@ -28,7 +24,7 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
                 }
               },
               _ = int.recv() => {
-                    server.kill().await;
+                    server.terminate().await;
                     return Ok(())
               },
             }
@@ -44,7 +40,7 @@ pub async fn spawn_oneshot(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
         select! {
           _ = server.wait() => {},
           _ = int.recv() => {
-                server.kill().await;
+                server.terminate().await;
           },
         };
         Ok(())
@@ -52,10 +48,11 @@ pub async fn spawn_oneshot(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
 }
 
 struct ServerProcess {
-    process: Option<Child>,
+    process: Option<tokio_process_tools::ProcessHandle>,
     envs: Vec<(&'static str, String)>,
     binary: Utf8PathBuf,
     bin_args: Option<Vec<String>>,
+    graceful_shutdown: bool,
 }
 
 impl ServerProcess {
@@ -65,6 +62,7 @@ impl ServerProcess {
             envs: proj.to_envs(),
             binary: proj.bin.exe_file.clone(),
             bin_args: proj.bin.bin_args.clone(),
+            graceful_shutdown: proj.graceful_shutdown,
         }
     }
 
@@ -74,19 +72,25 @@ impl ServerProcess {
         Ok(me)
     }
 
-    async fn kill(&mut self) {
-        if let Some(proc) = self.process.as_mut() {
-            if let Err(e) = proc.kill().await {
-                log::error!("Serve error killing server process: {e}");
-            } else {
-                log::trace!("Serve stopped");
-            }
-            self.process = None;
+    async fn terminate(&mut self) {
+        let Some(mut handle) = self.process.take() else {
+            return;
+        };
+
+        let (interrupt_timeout, terminate_timeout) = match self.graceful_shutdown {
+            true => (Duration::from_secs(0), Duration::from_secs(0)),
+            false => (Duration::from_secs(3), Duration::from_secs(8)),
+        };
+
+        if let Err(e) = handle.terminate(interrupt_timeout, terminate_timeout).await {
+            log::error!("Serve error terminating server process: {e}");
+        } else {
+            log::trace!("Serve stopped");
         }
     }
 
     async fn restart(&mut self) -> Result<()> {
-        self.kill().await;
+        self.terminate().await;
         self.start().await?;
         log::trace!("Serve restarted");
         Ok(())
@@ -105,7 +109,7 @@ impl ServerProcess {
 
     async fn start(&mut self) -> Result<()> {
         let bin = &self.binary;
-        let child = if bin.exists() {
+        let handle = if bin.exists() {
             // windows doesn't like to overwrite a running binary, so we copy it to a new name
             let bin_path = if cfg!(target_os = "windows") {
                 // solution to allow cargo to overwrite a running binary on some platforms:
@@ -138,12 +142,11 @@ impl ServerProcess {
             };
 
             log::debug!("Serve running {}", GRAY.paint(bin_path.as_str()));
-            let cmd = Some(
-                Command::new(bin_path)
-                    .envs(self.envs.clone())
-                    .args(bin_args)
-                    .spawn()?,
-            );
+            let mut cmd = Command::new(bin_path);
+            cmd.envs(self.envs.clone());
+            cmd.args(bin_args);
+
+            let handle = tokio_process_tools::ProcessHandle::spawn("server", cmd)?;
             let port = self
                 .envs
                 .iter()
@@ -156,12 +159,12 @@ impl ServerProcess {
                 })
                 .unwrap_or_default();
             log::info!("Serving at http://{port}");
-            cmd
+            Some(handle)
         } else {
             log::debug!("Serve no exe found {}", GRAY.paint(bin.as_str()));
             None
         };
-        self.process = child;
+        self.process = handle;
         Ok(())
     }
 }

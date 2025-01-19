@@ -59,6 +59,13 @@ pub struct Opts {
     /// Minify javascript assets with swc. Applies to release builds only.
     #[arg(long, default_value = "true", value_parser=clap::builder::BoolishValueParser::new(), action = clap::ArgAction::Set)]
     pub js_minify: bool,
+
+    /// Gracefully terminate the server process whenever termination is required.
+    /// The server SHOULD handle SIGINT and/or SIGTERM signals on unix
+    /// and CTRL+C and/or CTRL+BREAK signals on Windows systems.
+    /// A good cross-platform starting point is tokio's `tokio::signal::ctrl_c` function.
+    #[arg(long)]
+    pub graceful_shutdown: bool,
 }
 
 #[derive(Debug, Clone, Parser, PartialEq, Default)]
