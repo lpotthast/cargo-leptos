@@ -9,6 +9,7 @@ use crate::{
 use anyhow::Result;
 use leptos_hot_reload::ViewMacros;
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 use tokio::try_join;
 
 pub async fn watch(proj: &Arc<Project>) -> Result<()> {
@@ -34,17 +35,17 @@ pub async fn watch(proj: &Arc<Project>) -> Result<()> {
         let _patch = service::patch::spawn(proj, &view_macros).await?;
     }
 
-    service::serve::spawn(proj).await;
-    service::reload::spawn(proj).await;
+    let spawn_service_jh = service::serve::spawn(proj).await;
+    let reload_service_jh = service::reload::spawn(proj).await;
 
-    let res = run_loop(proj).await;
+    let res = run_loop(proj, spawn_service_jh, reload_service_jh).await;
     if res.is_err() {
         Interrupt::request_shutdown().await;
     }
     res
 }
 
-pub async fn run_loop(proj: &Arc<Project>) -> Result<()> {
+pub async fn run_loop(proj: &Arc<Project>, spawn_service_jh: JoinHandle<Result<()>>, reload_service_jh: JoinHandle<()>) -> Result<()> {
     let mut int = Interrupt::subscribe_any();
     loop {
         log::debug!("Watch waiting for changes");
@@ -52,7 +53,17 @@ pub async fn run_loop(proj: &Arc<Project>) -> Result<()> {
         int.recv().await.dot()?;
 
         if Interrupt::is_shutdown_requested().await {
-            log::debug!("Shutting down");
+            log::debug!("Shutting down. Waiting for services (serve, reload, ...) to shut down.");
+            match spawn_service_jh.await {
+                Ok(result) => if let Err(err) = result {
+                    log::error!("'serve' service shut down with error: {err}");
+                },
+                Err(err) => log::error!("Error while waiting for 'serve' service to shut down: {err}"),
+            };
+            match reload_service_jh.await {
+                Ok(()) => {},
+                Err(err) => log::error!("Error while waiting for 'reload' service to shut down: {err}"),
+            };
             return Ok(());
         }
 

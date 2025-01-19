@@ -8,6 +8,7 @@ use camino::Utf8PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{process::Command, select, task::JoinHandle};
+use tokio_process_tools::{Inspector, ProcessHandle};
 
 pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
     let mut int = Interrupt::subscribe_shutdown();
@@ -17,16 +18,17 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
         let mut server = ServerProcess::start_new(&proj).await?;
         loop {
             select! {
-              res = change.recv() => {
-                if let Ok(()) = res {
-                      server.restart().await?;
-                      ReloadSignal::send_full();
-                }
-              },
-              _ = int.recv() => {
+                res = change.recv() => {
+                    if let Ok(()) = res {
+                          server.restart().await?;
+                          ReloadSignal::send_full();
+                    }
+                },
+                _ = int.recv() => {
+                    log::info!("Serve received interrupt signal");
                     server.terminate().await;
                     return Ok(())
-              },
+                },
             }
         }
     })
@@ -48,7 +50,7 @@ pub async fn spawn_oneshot(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
 }
 
 struct ServerProcess {
-    process: Option<tokio_process_tools::ProcessHandle>,
+    process: Option<(ProcessHandle, Inspector, Inspector)>,
     envs: Vec<(&'static str, String)>,
     binary: Utf8PathBuf,
     bin_args: Option<Vec<String>>,
@@ -73,13 +75,13 @@ impl ServerProcess {
     }
 
     async fn terminate(&mut self) {
-        let Some(mut handle) = self.process.take() else {
+        let Some((mut handle, stdout_inspector, stderr_inspector)) = self.process.take() else {
             return;
         };
 
         let (interrupt_timeout, terminate_timeout) = match self.graceful_shutdown {
-            true => (Duration::from_secs(0), Duration::from_secs(0)),
-            false => (Duration::from_secs(3), Duration::from_secs(8)),
+            true => (Duration::from_secs(4), Duration::from_secs(8)),
+            false => (Duration::from_secs(0), Duration::from_secs(0)),
         };
 
         if let Err(e) = handle.terminate(interrupt_timeout, terminate_timeout).await {
@@ -87,6 +89,13 @@ impl ServerProcess {
         } else {
             log::trace!("Serve stopped");
         }
+
+        if let Err(err) = stdout_inspector.abort().await {
+            log::error!("Serve error aborting stdout inspector: {err}");
+        };
+        if let Err(err) = stderr_inspector.abort().await {
+            log::error!("Serve error aborting stderr inspector: {err}");
+        };
     }
 
     async fn restart(&mut self) -> Result<()> {
@@ -97,7 +106,7 @@ impl ServerProcess {
     }
 
     async fn wait(&mut self) -> Result<()> {
-        if let Some(proc) = self.process.as_mut() {
+        if let Some((proc, _, _)) = self.process.as_mut() {
             if let Err(e) = proc.wait().await {
                 log::error!("Serve error while waiting for server process to exit: {e}");
             } else {
@@ -109,7 +118,7 @@ impl ServerProcess {
 
     async fn start(&mut self) -> Result<()> {
         let bin = &self.binary;
-        let handle = if bin.exists() {
+        let process = if bin.exists() {
             // windows doesn't like to overwrite a running binary, so we copy it to a new name
             let bin_path = if cfg!(target_os = "windows") {
                 // solution to allow cargo to overwrite a running binary on some platforms:
@@ -146,12 +155,16 @@ impl ServerProcess {
             cmd.envs(self.envs.clone());
             cmd.args(bin_args);
 
-            let handle = tokio_process_tools::ProcessHandle::spawn("server", cmd)?;
-            let _stdout_inspector = handle.stdout().inspect(|line| {
-                log::info!("{}", line);
+            let handle = ProcessHandle::spawn("server", cmd)?;
+
+            // Let's forward captured stdout/stderr lines to the output of our process.
+            let stdout_inspector = handle.stdout().inspect(|line| {
+                println!("{}", line);
+                //log::info!("server: {}", line);
             });
-            let _stderr_inspector = handle.stdout().inspect(|line| {
-                log::error!("{}", line);
+            let stderr_inspector = handle.stderr().inspect(|line| {
+                eprintln!("{}", line);
+                //log::error!("server: {}", line);
             });
 
             let port = self
@@ -165,13 +178,19 @@ impl ServerProcess {
                     }
                 })
                 .unwrap_or_default();
-            log::info!("Serving at http://{port}");
-            Some(handle)
+            log::info!(
+                "Serving at http://{port}{}",
+                match self.graceful_shutdown {
+                    true => " (with graceful shutdown)",
+                    false => " (graceful shutdown disabled)",
+                }
+            );
+            Some((handle, stdout_inspector, stderr_inspector))
         } else {
             log::debug!("Serve no exe found {}", GRAY.paint(bin.as_str()));
             None
         };
-        self.process = handle;
+        self.process = process;
         Ok(())
     }
 }
