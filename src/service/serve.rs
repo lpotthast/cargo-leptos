@@ -160,11 +160,9 @@ impl ServerProcess {
             // Let's forward captured stdout/stderr lines to the output of our process.
             let stdout_inspector = handle.stdout().inspect(|line| {
                 println!("{}", line);
-                //log::info!("server: {}", line);
             });
             let stderr_inspector = handle.stderr().inspect(|line| {
                 eprintln!("{}", line);
-                //log::error!("server: {}", line);
             });
 
             let port = self
