@@ -1,4 +1,4 @@
-use crate::config::Project;
+use crate::config::{Project, WsProtocol};
 use crate::ext::sync::wait_for_socket;
 use crate::logger::GRAY;
 use crate::signal::Interrupt;
@@ -9,6 +9,7 @@ use axum::{
     routing::get,
     Router,
 };
+use axum_server::tls_rustls::RustlsConfig;
 use serde::Serialize;
 use std::sync::Arc;
 use std::{fmt::Display, net::SocketAddr};
@@ -51,31 +52,78 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
         }
         let router = Router::new().route("/live_reload", get(websocket_handler));
 
-        log::debug!(
-            "Reload server started {}",
-            GRAY.paint(reload_addr.to_string())
-        );
+        let protocol = proj.site.reload_protocol;
+        match protocol {
+            WsProtocol::Ws => {
+                let tcp_listener = match TcpListener::bind(reload_addr).await {
+                    Ok(listener) => listener,
+                    Err(e) => {
+                        log::error!("Unable to bind TcpListener {e}");
+                        return;
+                    }
+                };
 
-        let tcp_listener = match TcpListener::bind(&reload_addr).await {
-            Ok(listener) => listener,
-            Err(e) => {
-                log::error!("Unable to bind TcpListener {e}");
-                return;
+                let serve = axum::serve(tcp_listener, router.into_make_service());
+
+                log::info!(
+                    "Reload server started {}://{}",
+                    GRAY.paint(protocol.to_string()),
+                    GRAY.paint(reload_addr.to_string())
+                );
+
+                let mut int = Interrupt::subscribe_shutdown();
+                select! {
+                    _ = serve => {
+                        log::debug!("Reload server stopped")
+                    },
+                    _ = int.recv() => {
+                        log::debug!("Reload service received interrupt signal");
+                    },
+                }
+            }
+            WsProtocol::Wss => {
+                rustls::crypto::ring::default_provider()
+                    .install_default()
+                    .expect("Failed to install rustls crypto provider");
+
+                log::info!("Loading certs...");
+
+                let cert_path = proj
+                    .site
+                    .reload_cert
+                    .clone()
+                    .expect("A reload_cert must be set when using Wss");
+                let key_path = proj
+                    .site
+                    .reload_cert_key
+                    .clone()
+                    .expect("A reload_cert_key must be set when using Wss");
+                log::info!("Using cert path: {cert_path:?}");
+                log::info!("Using key path: {key_path:?}");
+
+                let config = RustlsConfig::from_pem_file(cert_path, key_path)
+                    .await
+                    .expect("Could not load certificates");
+
+                let serve = axum_server::bind_rustls(reload_addr, config).serve(router.into_make_service());
+
+                log::info!(
+                    "Reload server started {}://{}",
+                    GRAY.paint(protocol.to_string()),
+                    GRAY.paint(reload_addr.to_string())
+                );
+
+                let mut int = Interrupt::subscribe_shutdown();
+                select! {
+                    _ = serve => {
+                        log::debug!("Reload server stopped")
+                    },
+                    _ = int.recv() => {
+                        log::debug!("Reload service received interrupt signal");
+                    },
+                }
             }
         };
-
-        let serve = axum::serve(tcp_listener, router);
-
-        let mut int = Interrupt::subscribe_shutdown();
-
-        select! {
-            _ = serve => {
-                log::debug!("Reload server stopped")
-            },
-            _ = int.recv() => {
-                log::debug!("Reload service received interrupt signal");
-            },
-        }
     })
 }
 

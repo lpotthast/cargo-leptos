@@ -19,6 +19,7 @@ use super::{
     cli::Opts,
     dotenvs::{load_dotenvs, overlay_env},
     end2end::End2EndConfig,
+    protocol::WsProtocol,
     style::StyleConfig,
 };
 
@@ -215,6 +216,10 @@ pub struct ProjectConfig {
     pub watch_additional_files: Option<Vec<Utf8PathBuf>>,
     #[serde(default = "default_reload_port")]
     pub reload_port: u16,
+    #[serde(default)]
+    pub reload_protocol: WsProtocol,
+    pub reload_cert: Option<Utf8PathBuf>,
+    pub reload_cert_key: Option<Utf8PathBuf>,
     /// command for launching end-2-end integration tests
     pub end2end_cmd: Option<String>,
     /// the dir used when launching end-2-end integration tests
@@ -361,6 +366,7 @@ pub struct ProjectDefinition {
     pub bin_package: String,
     pub lib_package: String,
 }
+
 impl ProjectDefinition {
     fn from_workspace(
         metadata: &serde_json::Value,
