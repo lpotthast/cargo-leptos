@@ -45,7 +45,11 @@ pub async fn watch(proj: &Arc<Project>) -> Result<()> {
     res
 }
 
-pub async fn run_loop(proj: &Arc<Project>, spawn_service_jh: JoinHandle<Result<()>>, reload_service_jh: JoinHandle<()>) -> Result<()> {
+pub async fn run_loop(
+    proj: &Arc<Project>,
+    spawn_service_jh: JoinHandle<Result<()>>,
+    reload_service_jh: JoinHandle<()>,
+) -> Result<()> {
     let mut int = Interrupt::subscribe_any();
     loop {
         log::debug!("Watch waiting for changes");
@@ -55,14 +59,20 @@ pub async fn run_loop(proj: &Arc<Project>, spawn_service_jh: JoinHandle<Result<(
         if Interrupt::is_shutdown_requested().await {
             log::debug!("Shutting down. Waiting for services (serve, reload, ...) to shut down.");
             match spawn_service_jh.await {
-                Ok(result) => if let Err(err) = result {
-                    log::error!("'serve' service shut down with error: {err}");
-                },
-                Err(err) => log::error!("Error while waiting for 'serve' service to shut down: {err}"),
+                Ok(result) => {
+                    if let Err(err) = result {
+                        log::error!("'serve' service shut down with error: {err}");
+                    }
+                }
+                Err(err) => {
+                    log::error!("Error while waiting for 'serve' service to shut down: {err}")
+                }
             };
             match reload_service_jh.await {
-                Ok(()) => {},
-                Err(err) => log::error!("Error while waiting for 'reload' service to shut down: {err}"),
+                Ok(()) => {}
+                Err(err) => {
+                    log::error!("Error while waiting for 'reload' service to shut down: {err}")
+                }
             };
             return Ok(());
         }
