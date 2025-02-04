@@ -14,6 +14,7 @@ use crate::{
         fs, PathBufExt,
     },
 };
+use crate::config::WsProtocol;
 
 #[derive(Clone)]
 pub struct SourcedSiteFile {
@@ -76,6 +77,9 @@ impl std::fmt::Debug for SiteFile {
 pub struct Site {
     pub addr: SocketAddr,
     pub reload: SocketAddr,
+    pub reload_protocol: WsProtocol,
+    pub reload_cert: Option<Utf8PathBuf>,
+    pub reload_cert_key: Option<Utf8PathBuf>,
     pub root_dir: Utf8PathBuf,
     pub pkg_dir: Utf8PathBuf,
     file_reg: RwLock<HashMap<String, u64>>,
@@ -102,6 +106,9 @@ impl Site {
         Self {
             addr: config.site_addr,
             reload,
+            reload_protocol: config.reload_protocol,
+            reload_cert: config.reload_cert.clone(),
+            reload_cert_key: config.reload_cert_key.clone(),
             root_dir: config.site_root.clone(),
             pkg_dir: config.site_pkg_dir.clone(),
             file_reg: Default::default(),

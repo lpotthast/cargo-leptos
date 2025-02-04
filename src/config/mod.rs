@@ -12,6 +12,7 @@ mod profile;
 mod project;
 mod style;
 mod tailwind;
+mod protocol;
 
 use std::{fmt::Debug, sync::Arc};
 
@@ -27,6 +28,7 @@ pub use profile::Profile;
 pub use project::{Project, ProjectConfig};
 pub use style::StyleConfig;
 pub use tailwind::TailwindConfig;
+pub use protocol::WsProtocol;
 
 pub struct Config {
     /// absolute path to the working dir
