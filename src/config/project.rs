@@ -1,10 +1,9 @@
 use crate::config::hash_file::HashFile;
+use crate::ext::Paint;
+use crate::internal_prelude::*;
 use crate::{
     config::lib_package::LibPackage,
-    ext::{
-        anyhow::{bail, ensure, Result},
-        PackageExt, PathBufExt, PathExt,
-    },
+    ext::{PackageExt, PathBufExt, PathExt},
     logger::GRAY,
     service::site::Site,
 };
@@ -105,7 +104,7 @@ impl Project {
 
             // If there's more than 1 workspace member, we're a workspace. Probably
             let is_workspace = metadata.workspace_members.len() > 1;
-            log::debug!("Detected Workspace: {is_workspace}");
+            debug!("Detected Workspace: {is_workspace}");
             let hash_file = match is_workspace {
                 true => HashFile::new(
                     Some(&metadata.workspace_root),
@@ -133,7 +132,7 @@ impl Project {
                 watch_additional_files,
                 hash_file,
                 hash_files: config.hash_files,
-                js_minify: cli.release && cli.js_minify && config.js_minify,
+                js_minify: cli.release && (cli.js_minify || config.js_minify),
                 server_fn_prefix: config.server_fn_prefix,
                 disable_server_fn_hash: config.disable_server_fn_hash,
                 server_fn_mod_path: config.server_fn_mod_path,
@@ -171,16 +170,19 @@ impl Project {
             vec.push(("LEPTOS_HASH_FILE_NAME", self.hash_file.rel.to_string()));
         }
         if self.watch {
-            vec.push(("LEPTOS_WATCH", true.to_string()))
+            vec.push(("LEPTOS_WATCH", self.watch.to_string()))
         }
         if let Some(prefix) = self.server_fn_prefix.as_ref() {
             vec.push(("SERVER_FN_PREFIX", prefix.clone()));
         }
         if self.disable_server_fn_hash {
-            vec.push(("DISABLE_SERVER_FN_HASH", true.to_string()));
+            vec.push((
+                "DISABLE_SERVER_FN_HASH",
+                self.disable_server_fn_hash.to_string(),
+            ));
         }
         if self.server_fn_mod_path {
-            vec.push(("SERVER_FN_MOD_PATH", true.to_string()));
+            vec.push(("SERVER_FN_MOD_PATH", self.server_fn_mod_path.to_string()));
         }
         vec
     }
@@ -346,8 +348,8 @@ impl ProjectConfig {
 
         #[allow(deprecated)]
         if conf.separate_front_target_dir.is_some() {
-            log::warn!("Deprecated: the `separate-front-target-dir` option is deprecated since cargo-leptos 0.2.3");
-            log::warn!("It is now unconditionally enabled; you can remove it from your Cargo.toml")
+            warn!("Deprecated: the `separate-front-target-dir` option is deprecated since cargo-leptos 0.2.3");
+            warn!("It is now unconditionally enabled; you can remove it from your Cargo.toml")
         }
 
         Ok(conf)

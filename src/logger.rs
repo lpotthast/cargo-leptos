@@ -1,26 +1,29 @@
-use ansi_term::{Colour::Fixed, Style};
-use flexi_logger::{
-    filter::{LogLineFilter, LogLineWriter},
-    DeferredNow, Level, Record,
-};
+//! TODO: port over formatting to `tracing-subscriber`
+//! Currently, `tracing` emits log events and `flexi_logger` consumes then.
+//! When you do implement `tracing-subscriber`, remember to add `tracing-error` error layer
+//! for `color_eyre`!
+
+use clap::builder::styling::{Ansi256Color, Color};
+use flexi_logger::filter::{LogLineFilter, LogLineWriter};
+use flexi_logger::{DeferredNow, Level, Record};
 use std::io::Write;
 use std::sync::OnceLock;
 
-use crate::ext::anyhow::Context;
+use crate::internal_prelude::*;
 use crate::{config::Log, ext::StrAdditions};
 
-// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
-lazy_static::lazy_static! {
-   static ref ERR_RED: ansi_term::Color = Fixed(196);
-   static ref WARN_YELLOW: ansi_term::Color = Fixed(214);
-   pub static ref INFO_GREEN: ansi_term::Color = Fixed(77);
-   static ref DBG_BLUE: ansi_term::Color = Fixed(26);
-   static ref TRACE_VIOLET: ansi_term::Color = Fixed(98);
-
-   pub static ref GRAY: ansi_term::Color = Fixed(241);
-   pub static ref BOLD: ansi_term::Style = Style::new().bold();
-   static ref LOG_SELECT: OnceLock<LogFlag> = OnceLock::new();
+const fn color(num: u8) -> Color {
+    Color::Ansi256(Ansi256Color(num))
 }
+
+const ERR_RED: Color = color(196);
+const WARN_YELLOW: Color = color(214);
+const INFO_GREEN: Color = color(77);
+const DBG_BLUE: Color = color(26);
+const TRACE_VIOLET: Color = color(98);
+pub const GRAY: Color = color(241);
+
+static LOG_SELECT: OnceLock<LogFlag> = OnceLock::new();
 
 pub fn setup(verbose: u8, logs: &[Log]) {
     let log_level = match verbose {
@@ -32,12 +35,12 @@ pub fn setup(verbose: u8, logs: &[Log]) {
     // OnceLock::get_or_try_init() is more idiomatic, but unstable at the moment
     _ = LOG_SELECT.get_or_init(|| {
         flexi_logger::Logger::try_with_str(log_level)
-            .with_context(|| "Logger setup failed")
+            .wrap_err_with(|| "Logger setup failed")
             .unwrap()
             .filter(Box::new(Filter))
             .format(format)
             .start()
-            .unwrap();
+            .expect("Couldn't init cargo-leptos logger");
 
         LogFlag::new(logs)
     });
@@ -94,7 +97,7 @@ fn format(
     } else {
         let (word, rest) = split(&args);
         let word = word.pad_left_to(12);
-        write!(write, "{} {}", lvl_color.paint(word), rest)
+        write!(write, "{} {rest}", lvl_color.paint(word))
     }
 }
 
@@ -136,17 +139,17 @@ impl LogLineFilter for Filter {
 }
 
 trait LevelExt {
-    fn color(&self) -> ansi_term::Color;
+    fn color(&self) -> Color;
 }
 
 impl LevelExt for Level {
-    fn color(&self) -> ansi_term::Color {
+    fn color(&self) -> Color {
         match self {
-            Level::Error => *ERR_RED,
-            Level::Warn => *WARN_YELLOW,
-            Level::Info => *INFO_GREEN,
-            Level::Debug => *DBG_BLUE,
-            Level::Trace => *TRACE_VIOLET,
+            Level::Error => ERR_RED,
+            Level::Warn => WARN_YELLOW,
+            Level::Info => INFO_GREEN,
+            Level::Debug => DBG_BLUE,
+            Level::Trace => TRACE_VIOLET,
         }
     }
 }

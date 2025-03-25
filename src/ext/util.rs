@@ -1,5 +1,6 @@
-use crate::ext::anyhow::{bail, Context, Result};
+use crate::internal_prelude::*;
 use camino::Utf8PathBuf;
+use clap::builder::styling::{Color, Style};
 use std::borrow::Cow;
 
 pub fn os_arch() -> Result<(&'static str, &'static str)> {
@@ -53,7 +54,7 @@ impl StrAdditions for str {
     fn to_created_dir(&self) -> Result<Utf8PathBuf> {
         let path = Utf8PathBuf::from(self);
         if !path.exists() {
-            std::fs::create_dir_all(&path).context(format!("Could not create dir {self:?}"))?;
+            std::fs::create_dir_all(&path).wrap_err(format!("Could not create dir {self:?}"))?;
         }
         Ok(path)
     }
@@ -72,5 +73,18 @@ impl StrAdditions for String {
 
     fn to_created_dir(&self) -> Result<Utf8PathBuf> {
         self.as_str().to_created_dir()
+    }
+}
+
+pub trait Paint {
+    fn paint<'a>(self, text: impl Into<Cow<'a, str>>) -> String;
+}
+
+impl Paint for Color {
+    fn paint<'a>(self, text: impl Into<Cow<'a, str>>) -> String {
+        let text = text.into();
+        let style = Style::new().fg_color(Some(self));
+
+        format!("{style}{text}{style:#}")
     }
 }

@@ -1,11 +1,12 @@
+use crate::internal_prelude::*;
 use derive_more::Display;
 use itertools::Itertools;
+use std::sync::LazyLock;
 use std::{collections::HashSet, fmt};
 use tokio::sync::broadcast;
 
-lazy_static::lazy_static! {
-  static ref SERVER_RESTART_CHANNEL: broadcast::Sender::<()> = broadcast::channel::<()>(1).0;
-}
+static SERVER_RESTART_CHANNEL: LazyLock<broadcast::Sender<()>> =
+    LazyLock::new(|| broadcast::channel::<()>(1).0);
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Outcome<T> {
@@ -86,9 +87,9 @@ impl ServerRestart {
     }
 
     pub fn send() {
-        log::trace!("Server restart sent");
+        trace!("Server restart sent");
         if let Err(e) = SERVER_RESTART_CHANNEL.send(()) {
-            log::error!("Error could not send product changes due to {e}")
+            error!("Error could not send product changes due to {e}")
         }
     }
 }

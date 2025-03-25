@@ -1,8 +1,10 @@
-use crate::config::Project;
-use crate::ext::sync::wait_for_socket;
-use crate::logger::GRAY;
-use crate::signal::Interrupt;
-use crate::signal::{ReloadSignal, ReloadType};
+use crate::internal_prelude::*;
+use crate::{
+    config::Project,
+    ext::{sync::wait_for_socket, Paint},
+    logger::GRAY,
+    signal::{Interrupt, ReloadSignal, ReloadType},
+};
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
@@ -10,15 +12,18 @@ use axum::{
     Router,
 };
 use serde::Serialize;
-use std::sync::Arc;
-use std::{fmt::Display, net::SocketAddr};
-use tokio::net::TcpListener;
-use tokio::{net::TcpStream, select, sync::RwLock, task::JoinHandle};
+use std::sync::LazyLock;
+use std::{fmt::Display, net::SocketAddr, sync::Arc};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    select,
+    sync::RwLock,
+    task::JoinHandle,
+};
 
-lazy_static::lazy_static! {
-  static ref SITE_ADDR: RwLock<SocketAddr> = RwLock::new(SocketAddr::new([127,0,0,1].into(), 3000));
-  static ref CSS_LINK: RwLock<String> = RwLock::new(String::default());
-}
+static SITE_ADDR: LazyLock<RwLock<SocketAddr>> =
+    LazyLock::new(|| RwLock::new(SocketAddr::new([127, 0, 0, 1].into(), 3000)));
+static CSS_LINK: LazyLock<RwLock<String>> = LazyLock::new(|| RwLock::new(String::default()));
 
 pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
     let proj = proj.clone();
@@ -42,7 +47,7 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
         let reload_addr = proj.site.reload;
 
         if TcpStream::connect(&reload_addr).await.is_ok() {
-            log::error!(
+            error!(
                     "Reload TCP port {reload_addr} already in use. You can set the port in the server integration's RenderOptions reload_port"
                 );
             Interrupt::request_shutdown().await;
@@ -51,7 +56,7 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
         }
         let router = Router::new().route("/live_reload", get(websocket_handler));
 
-        log::debug!(
+        debug!(
             "Reload server started {}",
             GRAY.paint(reload_addr.to_string())
         );
@@ -59,7 +64,7 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
         let tcp_listener = match TcpListener::bind(&reload_addr).await {
             Ok(listener) => listener,
             Err(e) => {
-                log::error!("Unable to bind TcpListener {e}");
+                error!("Unable to bind TcpListener {e}");
                 return;
             }
         };
@@ -70,10 +75,10 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
 
         select! {
             _ = serve => {
-                log::debug!("Reload server stopped")
+                debug!("Reload server stopped")
             },
             _ = int.recv() => {
-                log::debug!("Reload service received interrupt signal");
+                debug!("Reload service received interrupt signal");
             },
         }
     })
@@ -87,7 +92,7 @@ async fn websocket(mut stream: WebSocket) {
     let mut rx = ReloadSignal::subscribe();
     let mut int = Interrupt::subscribe_any();
 
-    log::trace!("Reload websocket connected");
+    trace!("Reload websocket connected");
     tokio::spawn(async move {
         loop {
             select! {
@@ -103,11 +108,11 @@ async fn websocket(mut stream: WebSocket) {
                         Ok(ReloadType::ViewPatches(data)) => {
                             send(&mut stream, BrowserMessage::view(data)).await;
                         }
-                        Err(e) => log::debug!("Reload recive error {e}")
+                        Err(e) => debug!("Reload recive error {e}")
                     }
                 }
                 _ = int.recv(), if Interrupt::is_shutdown_requested().await => {
-                    log::trace!("Reload websocket closed");
+                    trace!("Reload websocket closed");
                     return
                 },
             }
@@ -118,23 +123,23 @@ async fn websocket(mut stream: WebSocket) {
 async fn send(stream: &mut WebSocket, msg: BrowserMessage) {
     let site_addr = *SITE_ADDR.read().await;
     if !wait_for_socket("Reload", site_addr).await {
-        log::warn!(r#"Reload could not send "{msg}" to websocket"#);
+        warn!(r#"Reload could not send "{msg}" to websocket"#);
     }
 
     let text = serde_json::to_string(&msg).unwrap();
-    match stream.send(Message::Text(text)).await {
+    match stream.send(Message::Text(text.into())).await {
         Err(e) => {
-            log::debug!("Reload could not send {msg} due to {e}");
+            debug!("Reload could not send {msg} due to {e}");
         }
         Ok(_) => {
-            log::debug!(r#"Reload sent "{msg}" to browser"#);
+            debug!(r#"Reload sent "{msg}" to browser"#);
         }
     }
 }
 
 async fn send_and_close(mut stream: WebSocket, msg: BrowserMessage) {
     send(&mut stream, msg).await;
-    let _ = stream.close().await;
+    let _ = stream.send(Message::Close(None)).await;
     log::trace!("Reload websocket closed");
 }
 
@@ -149,7 +154,7 @@ impl BrowserMessage {
     async fn css() -> Self {
         let link = CSS_LINK.read().await.clone();
         if link.is_empty() {
-            log::error!("Reload internal error: sending css reload but no css file is set.");
+            error!("Reload internal error: sending css reload but no css file is set.");
         }
         Self {
             css: Some(link),

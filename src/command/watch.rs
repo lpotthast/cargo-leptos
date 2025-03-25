@@ -1,14 +1,14 @@
 use super::build::build_proj;
+use crate::internal_prelude::*;
 use crate::{
     compile::{self},
     config::Project,
-    ext::anyhow::Context,
     service,
     signal::{Interrupt, Outcome, Product, ProductSet, ReloadSignal, ServerRestart},
 };
-use anyhow::Result;
 use leptos_hot_reload::ViewMacros;
 use std::sync::Arc;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use tokio::try_join;
 
@@ -21,20 +21,22 @@ pub async fn watch(proj: &Arc<Project>) -> Result<()> {
         return Ok(());
     }
 
+    if proj.hot_reload && proj.release {
+        log::warn!("warning: Hot reloading does not currently work in --release mode.");
+    }
+
     let view_macros = if proj.hot_reload {
         // build initial set of view macros for patching
         let view_macros = ViewMacros::new();
-        view_macros.update_from_paths(&proj.lib.src_paths)?;
+        view_macros
+            .update_from_paths(&proj.lib.src_paths)
+            .wrap_anyhow_err("Couldn't update view-macro watch")?;
         Some(view_macros)
     } else {
         None
     };
 
-    let _watch = service::notify::spawn(proj).await?;
-    if let Some(view_macros) = view_macros {
-        let _patch = service::patch::spawn(proj, &view_macros).await?;
-    }
-
+    service::notify::spawn(proj, view_macros).await?;
     let spawn_service_jh = service::serve::spawn(proj).await;
     let reload_service_jh = service::reload::spawn(proj).await;
 
@@ -52,26 +54,31 @@ pub async fn run_loop(
 ) -> Result<()> {
     let mut int = Interrupt::subscribe_any();
     loop {
-        log::debug!("Watch waiting for changes");
+        debug!("Watch waiting for changes");
 
-        int.recv().await.dot()?;
+        let int = int.recv().await;
+        // Do not terminate the execution of watch if the receiver lagged behind as it might be a slow receiver
+        // It happens when many files are modified in short period and it exceeds the channel capacity.
+        if matches!(int, Err(RecvError::Closed)) {
+            return Err(RecvError::Closed).dot();
+        }
 
         if Interrupt::is_shutdown_requested().await {
-            log::debug!("Shutting down. Waiting for services (serve, reload, ...) to shut down.");
+            debug!("Shutting down. Waiting for services (serve, reload, ...) to shut down.");
             match spawn_service_jh.await {
                 Ok(result) => {
                     if let Err(err) = result {
-                        log::error!("'serve' service shut down with error: {err}");
+                        error!("'serve' service shut down with error: {err}");
                     }
                 }
                 Err(err) => {
-                    log::error!("Error while waiting for 'serve' service to shut down: {err}")
+                    error!("Error while waiting for 'serve' service to shut down: {err}")
                 }
             };
             match reload_service_jh.await {
                 Ok(()) => {}
                 Err(err) => {
-                    log::error!("Error while waiting for 'reload' service to shut down: {err}")
+                    error!("Error while waiting for 'reload' service to shut down: {err}")
                 }
             };
             return Ok(());
@@ -95,13 +102,13 @@ pub async fn runner(proj: &Arc<Project>) -> Result<()> {
 
     let interrupted = outcomes.iter().any(|outcome| *outcome == Outcome::Stopped);
     if interrupted {
-        log::info!("Build interrupted. Restarting.");
+        info!("Build interrupted. Restarting.");
         return Ok(());
     }
 
     let failed = outcomes.iter().any(|outcome| *outcome == Outcome::Failed);
     if failed {
-        log::warn!("Build failed");
+        warn!("Build failed");
         Interrupt::clear_source_changes().await;
         return Ok(());
     }
@@ -109,21 +116,21 @@ pub async fn runner(proj: &Arc<Project>) -> Result<()> {
     let set = ProductSet::from(outcomes);
 
     if set.is_empty() {
-        log::trace!("Build step done with no changes");
+        trace!("Build step done with no changes");
     } else {
-        log::trace!("Build step done with changes: {set}");
+        trace!("Build step done with changes: {set}");
     }
 
     if set.contains(&Product::Server) {
         // send product change, then the server will send the reload once it has restarted
         ServerRestart::send();
-        log::info!("Watch updated {set}. Server restarting")
+        info!("Watch updated {set}. Server restarting")
     } else if set.only_style() {
         ReloadSignal::send_style();
-        log::info!("Watch updated style")
+        info!("Watch updated style")
     } else if set.contains_any(&[Product::Front, Product::Assets]) {
         ReloadSignal::send_full();
-        log::info!("Watch updated {set}")
+        info!("Watch updated {set}")
     }
     Interrupt::clear_source_changes().await;
     Ok(())

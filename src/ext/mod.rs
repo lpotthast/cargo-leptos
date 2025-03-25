@@ -1,8 +1,8 @@
 #[cfg(all(test, feature = "full_tests"))]
 mod tests;
 
-pub mod anyhow;
 mod cargo;
+pub mod color_eyre;
 pub mod compress;
 pub mod exe;
 pub mod fs;
@@ -15,4 +15,4 @@ pub use exe::{Exe, ExeMeta};
 pub use path::{
     append_str_to_filename, determine_pdb_filename, remove_nested, PathBufExt, PathExt,
 };
-pub use util::{os_arch, StrAdditions};
+pub use util::{os_arch, Paint, StrAdditions};

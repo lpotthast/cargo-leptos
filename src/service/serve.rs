@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
+use crate::internal_prelude::*;
 use crate::{
     config::Project,
-    ext::{anyhow::Result, append_str_to_filename, determine_pdb_filename, fs},
+    ext::{append_str_to_filename, determine_pdb_filename, fs, Paint},
     logger::GRAY,
     signal::{Interrupt, ReloadSignal, ServerRestart},
 };
@@ -25,7 +28,7 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
                     }
                 },
                 _ = int.recv() => {
-                    log::info!("Serve received interrupt signal");
+                    info!("Serve received interrupt signal");
                     server.terminate().await;
                     return Ok(())
                 },
@@ -85,32 +88,32 @@ impl ServerProcess {
         };
 
         if let Err(e) = handle.terminate(interrupt_timeout, terminate_timeout).await {
-            log::error!("Serve error terminating server process: {e}");
+            error!("Serve error terminating server process: {e}");
         } else {
-            log::trace!("Serve stopped");
+            trace!("Serve stopped");
         }
 
         if let Err(err) = stdout_inspector.abort().await {
-            log::error!("Serve error aborting stdout inspector: {err}");
+            error!("Serve error aborting stdout inspector: {err}");
         };
         if let Err(err) = stderr_inspector.abort().await {
-            log::error!("Serve error aborting stderr inspector: {err}");
+            error!("Serve error aborting stderr inspector: {err}");
         };
     }
 
     async fn restart(&mut self) -> Result<()> {
         self.terminate().await;
         self.start().await?;
-        log::trace!("Serve restarted");
+        trace!("Serve restarted");
         Ok(())
     }
 
     async fn wait(&mut self) -> Result<()> {
         if let Some((proc, _, _)) = self.process.as_mut() {
             if let Err(e) = proc.wait().await {
-                log::error!("Serve error while waiting for server process to exit: {e}");
+                error!("Serve error while waiting for server process to exit: {e}");
             } else {
-                log::trace!("Serve process exited");
+                trace!("Serve process exited");
             }
         }
         Ok(())
@@ -124,7 +127,7 @@ impl ServerProcess {
                 // solution to allow cargo to overwrite a running binary on some platforms:
                 //   copy cargo's output bin to [filename]_leptos and then run it
                 let new_bin_path = append_str_to_filename(bin, "_leptos")?;
-                log::debug!(
+                debug!(
                     "Copying server binary {} to {}",
                     GRAY.paint(bin.as_str()),
                     GRAY.paint(new_bin_path.as_str())
@@ -133,7 +136,7 @@ impl ServerProcess {
                 // also copy the .pdb file if it exists to allow debugging to attach
                 if let Some(pdb) = determine_pdb_filename(bin) {
                     let new_pdb_path = append_str_to_filename(&pdb, "_leptos")?;
-                    log::debug!(
+                    debug!(
                         "Copying server binary debug info {} to {}",
                         GRAY.paint(pdb.as_str()),
                         GRAY.paint(new_pdb_path.as_str())
@@ -150,7 +153,7 @@ impl ServerProcess {
                 None => &[],
             };
 
-            log::debug!("Serve running {}", GRAY.paint(bin_path.as_str()));
+            debug!("Serve running {}", GRAY.paint(bin_path.as_str()));
             let mut cmd = Command::new(bin_path);
             cmd.envs(self.envs.clone());
             cmd.args(bin_args);
@@ -164,7 +167,6 @@ impl ServerProcess {
             let stderr_inspector = handle.stderr().inspect(|line| {
                 eprintln!("{}", line);
             });
-
             let port = self
                 .envs
                 .iter()
@@ -176,7 +178,7 @@ impl ServerProcess {
                     }
                 })
                 .unwrap_or_default();
-            log::info!(
+            info!(
                 "Serving at http://{port}{}",
                 match self.graceful_shutdown {
                     true => " (with graceful shutdown)",
@@ -185,7 +187,7 @@ impl ServerProcess {
             );
             Some((handle, stdout_inspector, stderr_inspector))
         } else {
-            log::debug!("Serve no exe found {}", GRAY.paint(bin.as_str()));
+            debug!("Serve no exe found {}", GRAY.paint(bin.as_str()));
             None
         };
         self.process = process;
