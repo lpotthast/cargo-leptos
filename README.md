@@ -267,7 +267,7 @@ tailwind-config-file = "tailwind.config.js"
 browserquery = "defaults"
 
 # Assets source dir. All files found here will be copied and synchronized to site-root.
-# The assets-dir cannot have a sub directory with the same name/path as site-pkg-dir.
+# The assets-dir cannot have a subdirectory with the same name/path as site-pkg-dir.
 #
 # Optional. Env: LEPTOS_ASSETS_DIR.
 assets-dir = "assets"
@@ -279,7 +279,7 @@ assets-dir = "assets"
 # Optional. Defaults to "src"
 js-dir = "src"
 
-# Additional files your application could depends on.
+# Additional files your application could depend on.
 # A change to any file in those directories will trigger a rebuild.
 #
 # Optional.
@@ -294,6 +294,14 @@ site-addr = "127.0.0.1:3000"
 #
 # Optional, defaults 3001. Env: LEPTOS_RELOAD_PORT
 reload-port = 3001
+
+# The websocket protocol used by the reload server (only used in watch mode).
+# Allowed values are "ws" and "wss".
+# Switch to "wss" when you locally serve your site using HTTPS, as doing such will limit you to secure websocket
+# connections only (enforced by the browser).
+#
+# Optional, defaults to "ws". Env: LEPTOS_RELOAD_PROTOCOL
+reload-protocol = "ws"
 
 # The command used for running end-to-end tests. See the section about End-to-end testing.
 #
