@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::internal_prelude::*;
 use crate::{
     config::Project,

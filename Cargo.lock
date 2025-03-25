@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-leptos"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "anyhow",
  "axum",
@@ -571,6 +571,7 @@ dependencies = [
  "tar",
  "temp-dir",
  "tokio",
+ "tokio-process-tools",
  "tracing",
  "walkdir",
  "wasm-bindgen-cli-support",
@@ -5593,6 +5594,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
+]
+
+[[package]]
+name = "tokio-process-tools"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "698c5fee54bbaeb6df8605bc431a93d6c914c463a7842dd2ee3e5b2d5c2163c9"
+dependencies = [
+ "nix",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
