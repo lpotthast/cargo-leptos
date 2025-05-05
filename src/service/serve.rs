@@ -158,13 +158,41 @@ impl ServerProcess {
 
             let handle = ProcessHandle::spawn("server", cmd)?;
 
+            async fn write_to_stdout(data: &str) -> tokio::io::Result<()> {
+                use tokio::io::AsyncWriteExt;
+                let mut stdout = tokio::io::stdout();
+                stdout.write_all(data.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+                Ok(())
+            }
+
+            async fn write_to_stderr(data: &str) -> tokio::io::Result<()> {
+                use tokio::io::AsyncWriteExt;
+                let mut stdout = tokio::io::stderr();
+                stdout.write_all(data.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+                Ok(())
+            }
+
             // Let's forward captured stdout/stderr lines to the output of our process.
-            let stdout_inspector = handle.stdout().inspect(|line| {
-                println!("{}", line);
+            // We do this asynchronously using the tokio::io::std{out|err}() handles,
+            // as writing to stdout/stderr directly using print!() could result in unhandled
+            // "failed printing to stdout: Resource temporarily unavailable (os error 35)" errors.
+            let stdout_inspector = handle.stdout().inspect_async(|line| {
+                Box::pin(async move {
+                    write_to_stdout(line.as_str()).await?;
+                    Ok(())
+                })
             });
-            let stderr_inspector = handle.stderr().inspect(|line| {
-                eprintln!("{}", line);
+            let stderr_inspector = handle.stderr().inspect_async(|line| {
+                Box::pin(async move {
+                    write_to_stderr(line.as_str()).await?;
+                    Ok(())
+                })
             });
+
             let port = self
                 .envs
                 .iter()
