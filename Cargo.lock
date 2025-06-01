@@ -6093,7 +6093,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -6104,7 +6104,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-backend"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "bumpalo",
  "log",
@@ -6117,7 +6117,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-cli-support"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "anyhow",
  "base64",
@@ -6138,7 +6138,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-externref-xform"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "anyhow",
  "walrus",
@@ -6161,7 +6161,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-macro"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -6170,7 +6170,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-macro-support"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6182,7 +6182,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-multi-value-xform"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "anyhow",
  "walrus",
@@ -6192,7 +6192,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-shared"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "unicode-ident",
 ]
@@ -6200,7 +6200,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-threads-xform"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "anyhow",
  "walrus",
@@ -6210,7 +6210,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-wasm-conventions"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "anyhow",
  "leb128",
@@ -6222,7 +6222,7 @@ dependencies = [
 [[package]]
 name = "wasm-bindgen-wasm-interpreter"
 version = "0.2.100"
-source = "git+https://github.com/lpotthast/wasm-bindgen?branch=fix-memory-issue#ff8e158caf59caf279ad802c2af80336fe392432"
+source = "git+https://github.com/lpotthast/wasm-bindgen?rev=f0c832448218ddc226371467304b5d0611d1655c#f0c832448218ddc226371467304b5d0611d1655c"
 dependencies = [
  "anyhow",
  "log",

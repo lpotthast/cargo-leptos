@@ -31,7 +31,7 @@ notify-debouncer-full = "0.5.0"
 which = "7.0"
 cargo_metadata = { version = "0.19.2", features = ["builder"] }
 serde_json = "1.0"
-wasm-bindgen-cli-support = { git = "https://github.com/lpotthast/wasm-bindgen", branch = "fix-memory-issue" }
+wasm-bindgen-cli-support = { git = "https://github.com/lpotthast/wasm-bindgen", rev = "f0c832448218ddc226371467304b5d0611d1655c" }
 reqwest = { version = "0.12.15", features = [
   "blocking",
   "rustls-tls",
@@ -63,7 +63,7 @@ walkdir = "2.5"
 tokio-process-tools = "0.5.4"
 
 [patch.crates-io]
-wasm-bindgen = { git = "https://github.com/lpotthast/wasm-bindgen", branch = "fix-memory-issue" }
+wasm-bindgen = { git = "https://github.com/lpotthast/wasm-bindgen", rev = "f0c832448218ddc226371467304b5d0611d1655c" }
 
 [dev-dependencies]
 insta = { version = "1.43", features = ["yaml"] }
