@@ -1,5 +1,5 @@
 use cargo_generate::{generate, GenerateArgs, TemplatePath};
-use clap::Args;
+use clap::{ArgGroup, Args};
 
 use crate::internal_prelude::*;
 
@@ -8,25 +8,26 @@ use crate::internal_prelude::*;
 
 #[derive(Clone, Debug, Args, PartialEq, Eq)]
 #[clap(arg_required_else_help(true))]
+#[clap(group(ArgGroup::new("template").args(&["git", "path"]).required(true).multiple(false)))]
 #[clap(about)]
 pub struct NewCommand {
     /// Git repository to clone template from. Can be a full URL (like
     /// `https://github.com/leptos-rs/start`), or a shortcut for one of our
     /// built-in templates: `leptos-rs/start`, `leptos-rs/start-axum`,
     /// `leptos-rs/start-axum-workspace`, or `leptos-rs/start-aws`.
-    #[clap(short, long, group("SpecificPath"))]
+    #[clap(short, long, group = "git-arg")]
     pub git: Option<String>,
 
     /// Branch to use when installing from git
-    #[clap(short, long, conflicts_with = "tag")]
+    #[clap(short, long, conflicts_with = "tag", requires = "git-arg")]
     pub branch: Option<String>,
 
     /// Tag to use when installing from git
-    #[clap(short, long, conflicts_with = "branch")]
+    #[clap(short, long, conflicts_with = "branch", requires = "git-arg")]
     pub tag: Option<String>,
 
     /// Local path to copy the template from. Can not be specified together with --git.
-    #[clap(short, long, group("SpecificPath"))]
+    #[clap(short, long)]
     pub path: Option<String>,
 
     /// Directory to create / project name; if the name isn't in kebab-case, it will be converted
@@ -87,7 +88,7 @@ fn absolute_git_url(url: Option<String>) -> Option<String> {
     url.map(|url| match url.as_str() {
         "start-trunk" | "leptos-rs/start-trunk" => format_leptos_starter_url("start-trunk"),
         "start-actix" | "leptos-rs/start" | "leptos-rs/start-actix" => {
-            format_leptos_starter_url("start")
+            format_leptos_starter_url("start-actix")
         }
         "start-axum" | "leptos-rs/start-axum" => format_leptos_starter_url("start-axum"),
         "start-axum-workspace" | "leptos-rs/start-axum-workspace" => {

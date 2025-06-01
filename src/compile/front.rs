@@ -1,18 +1,27 @@
 use super::ChangeSet;
-use crate::config::Project;
-use crate::ext::sync::{wait_interruptible, CommandResult};
-use crate::ext::{fs, PathBufExt};
-use crate::internal_prelude::*;
-use crate::logger::GRAY;
-use crate::signal::{Interrupt, Outcome, Product};
+use crate::{
+    config::Project,
+    ext::{
+        eyre::AnyhowCompatWrapErr,
+        fs,
+        sync::{wait_interruptible, CommandResult},
+        PathBufExt,
+    },
+    internal_prelude::*,
+    logger::GRAY,
+    signal::{Interrupt, Outcome, Product},
+};
 use camino::Utf8Path;
 use std::sync::Arc;
-use swc::config::IsModule;
-use swc::JsMinifyExtras;
-use swc::{config::JsMinifyOptions, try_with_handler, BoolOrDataConfig};
+use swc::{
+    config::{IsModule, JsMinifyOptions},
+    try_with_handler, BoolOrDataConfig, JsMinifyExtras,
+};
 use swc_common::{FileName, SourceMap, GLOBALS};
-use tokio::process::Child;
-use tokio::{process::Command, task::JoinHandle};
+use tokio::{
+    process::{Child, Command},
+    task::JoinHandle,
+};
 use wasm_bindgen_cli_support::Bindgen;
 use wasm_opt::OptimizationOptions;
 
@@ -87,7 +96,7 @@ pub fn build_cargo_front_cmd(
 
     proj.lib.profile.add_to_args(&mut args);
 
-    let envs = proj.to_envs();
+    let envs = proj.to_envs(wasm);
 
     let envs_str = envs
         .iter()
@@ -96,7 +105,9 @@ pub fn build_cargo_front_cmd(
         .join(" ");
 
     command.args(&args).envs(envs);
+
     let line = super::build_cargo_command_string(args);
+    trace!(?envs_str, ?line, "Constructed cargo build front cmd");
     (envs_str, line)
 }
 
@@ -219,6 +230,7 @@ fn minify<JS: AsRef<str>>(js: JS) -> Result<String> {
                 .context("failed to minify")
             })
         })
+        .map_err(|e| e.to_pretty_error())
         .wrap_anyhow_err("Failed to minify")?;
 
     Ok(output.code)
