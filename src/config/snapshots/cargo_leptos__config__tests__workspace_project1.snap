@@ -78,6 +78,7 @@ Config {
             disable_erase_components: false,
             always_erase_components: false,
             server_fn_mod_path: true,
+            graceful_shutdown: true,
             ..
         },
     ],
@@ -96,6 +97,7 @@ Config {
         wasm_debug: false,
         verbose: 0,
         js_minify: false,
+        graceful_shutdown: true,
     },
     watch: true,
     ..
