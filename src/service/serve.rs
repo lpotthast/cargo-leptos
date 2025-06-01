@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     config::Project,
     ext::{append_str_to_filename, determine_pdb_filename, fs, Paint},
