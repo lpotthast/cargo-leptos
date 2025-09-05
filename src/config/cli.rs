@@ -72,6 +72,13 @@ pub struct Opts {
     /// Only build the server.
     #[arg(long, conflicts_with = "frontend_only")]
     pub server_only: bool,
+
+    /// Gracefully terminate the server process whenever termination is required.
+    /// The server SHOULD handle SIGINT and/or SIGTERM signals on unix
+    /// and CTRL+C and/or CTRL+BREAK signals on Windows systems.
+    /// A good cross-platform starting point is tokio's `tokio::signal::ctrl_c` function.
+    #[arg(long)]
+    pub graceful_shutdown: bool,
 }
 
 #[derive(Debug, Clone, Parser, PartialEq, Default)]

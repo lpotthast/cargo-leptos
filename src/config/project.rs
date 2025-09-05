@@ -53,6 +53,7 @@ pub struct Project {
     pub wasm_opt_features: Option<HashSet<String>>,
     pub build_frontend_only: bool,
     pub build_server_only: bool,
+    pub graceful_shutdown: bool,
 }
 
 impl Debug for Project {
@@ -77,6 +78,7 @@ impl Debug for Project {
             .field("always_erase_components", &self.always_erase_components)
             .field("server_fn_mod_path", &self.server_fn_mod_path)
             .field("wasm_opt_features", &self.wasm_opt_features)
+            .field("graceful_shutdown", &self.graceful_shutdown)
             .finish_non_exhaustive()
     }
 }
@@ -148,6 +150,7 @@ impl Project {
                 wasm_opt_features: config.wasm_opt_features,
                 build_frontend_only: cli.frontend_only,
                 build_server_only: cli.server_only,
+                graceful_shutdown: cli.graceful_shutdown,
             };
             resolved.push(Arc::new(proj));
         }

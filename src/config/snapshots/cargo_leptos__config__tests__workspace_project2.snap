@@ -82,6 +82,7 @@ Config {
             always_erase_components: false,
             server_fn_mod_path: false,
             wasm_opt_features: None,
+            graceful_shutdown: true,
             ..
         },
     ],
@@ -103,6 +104,7 @@ Config {
         split: false,
         frontend_only: false,
         server_only: false,
+        graceful_shutdown: true,
     },
     watch: true,
     ..

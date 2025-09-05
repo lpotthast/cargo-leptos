@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     config::Project,
     ext::{append_str_to_filename, determine_pdb_filename, fs, Paint},
@@ -8,11 +6,12 @@ use crate::{
     signal::{Interrupt, ReloadSignal, ServerRestart},
 };
 use camino::Utf8PathBuf;
-use tokio::{
-    process::{Child, Command},
-    select,
-    task::JoinHandle,
-};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::{process::Command, select, task::JoinHandle};
+use tokio::io::AsyncWrite;
+use tokio_process_tools::broadcast::BroadcastOutputStream;
+use tokio_process_tools::{Inspector, LineParsingOptions, Next, ProcessHandle};
 
 pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
     let mut int = Interrupt::subscribe_shutdown();
@@ -22,16 +21,17 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
         let mut server = ServerProcess::start_new(&proj).await?;
         loop {
             select! {
-              res = change.recv() => {
-                if let Ok(()) = res {
-                      server.restart().await?;
-                      ReloadSignal::send_full();
-                }
-              },
-              _ = int.recv() => {
-                    server.kill().await;
+                res = change.recv() => {
+                    if let Ok(()) = res {
+                          server.restart().await?;
+                          ReloadSignal::send_full();
+                    }
+                },
+                _ = int.recv() => {
+                    info!("Serve received interrupt signal");
+                    server.terminate().await;
                     return Ok(())
-              },
+                },
             }
         }
     })
@@ -45,7 +45,7 @@ pub async fn spawn_oneshot(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
         select! {
           _ = server.wait() => {},
           _ = int.recv() => {
-                server.kill().await;
+                server.terminate().await;
           },
         };
         Ok(())
@@ -53,10 +53,11 @@ pub async fn spawn_oneshot(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
 }
 
 struct ServerProcess {
-    process: Option<Child>,
+    process: Option<(ProcessHandle<BroadcastOutputStream>, Inspector, Inspector)>,
     envs: Vec<(&'static str, String)>,
     binary: Utf8PathBuf,
     bin_args: Option<Vec<String>>,
+    graceful_shutdown: bool,
 }
 
 impl ServerProcess {
@@ -66,6 +67,7 @@ impl ServerProcess {
             envs: proj.to_envs(false),
             binary: proj.bin.exe_file.clone(),
             bin_args: proj.bin.bin_args.clone(),
+            graceful_shutdown: proj.graceful_shutdown,
         }
     }
 
@@ -75,27 +77,40 @@ impl ServerProcess {
         Ok(me)
     }
 
-    async fn kill(&mut self) {
-        if let Some(proc) = self.process.as_mut() {
-            if let Err(e) = proc.kill().await {
-                error!("Serve error killing server process: {e}");
-            } else {
-                trace!("Serve stopped");
-            }
-            self.process = None;
+    async fn terminate(&mut self) {
+        let Some((mut handle, stdout_inspector, stderr_inspector)) = self.process.take() else {
+            return;
+        };
+
+        let (interrupt_timeout, terminate_timeout) = match self.graceful_shutdown {
+            true => (Duration::from_secs(4), Duration::from_secs(8)),
+            false => (Duration::from_secs(0), Duration::from_secs(0)),
+        };
+
+        if let Err(e) = handle.terminate(interrupt_timeout, terminate_timeout).await {
+            error!("Serve error terminating server process: {e}");
+        } else {
+            trace!("Serve stopped");
         }
+
+        if let Err(err) = stdout_inspector.cancel().await {
+            error!("Serve error aborting stdout inspector: {err}");
+        };
+        if let Err(err) = stderr_inspector.cancel().await {
+            error!("Serve error aborting stderr inspector: {err}");
+        };
     }
 
     async fn restart(&mut self) -> Result<()> {
-        self.kill().await;
+        self.terminate().await;
         self.start().await?;
         trace!("Serve restarted");
         Ok(())
     }
 
     async fn wait(&mut self) -> Result<()> {
-        if let Some(proc) = self.process.as_mut() {
-            if let Err(e) = proc.wait().await {
+        if let Some((process, _, _)) = self.process.as_mut() {
+            if let Err(e) = process.wait_for_completion(None).await {
                 error!("Serve error while waiting for server process to exit: {e}");
             } else {
                 trace!("Serve process exited");
@@ -106,7 +121,7 @@ impl ServerProcess {
 
     async fn start(&mut self) -> Result<()> {
         let bin = &self.binary;
-        let child = if bin.exists() {
+        let process = if bin.exists() {
             // windows doesn't like to overwrite a running binary, so we copy it to a new name
             let bin_path = if cfg!(target_os = "windows") {
                 // solution to allow cargo to overwrite a running binary on some platforms:
@@ -139,12 +154,41 @@ impl ServerProcess {
             };
 
             debug!("Serve running {}", GRAY.paint(bin_path.as_str()));
-            let cmd = Some(
-                Command::new(bin_path)
-                    .envs(self.envs.clone())
-                    .args(bin_args)
-                    .spawn()?,
-            );
+            let mut cmd = Command::new(bin_path);
+            cmd.envs(self.envs.clone());
+            cmd.args(bin_args);
+
+            let handle = ProcessHandle::<BroadcastOutputStream>::spawn("server", cmd)?;
+
+            async fn write_to<W: AsyncWrite + Unpin>(mut to: W, data: &str) -> tokio::io::Result<()> {
+                use tokio::io::AsyncWriteExt;
+                to.write_all(data.as_bytes()).await?;
+                to.write_all(b"\n").await?;
+                to.flush().await?;
+                Ok(())
+            }
+
+            // Let's forward captured stdout/stderr lines to the output of our process.
+            // We do this asynchronously using the tokio::io::std{out|err}() handles,
+            // as writing to stdout/stderr directly using print!() could result in unhandled
+            // "failed printing to stdout: Resource temporarily unavailable (os error 35)" errors.
+            let stdout_inspector = handle.stdout().inspect_lines_async(|line| {
+                Box::pin(async move {
+                    if let Err(err) = write_to(tokio::io::stdout(), line.as_str()).await {
+                        error!("Could not forward server process output to stdout: {err}");
+                    }
+                    Next::Continue
+                })
+            }, LineParsingOptions::default());
+            let stderr_inspector = handle.stderr().inspect_lines_async(|line| {
+                Box::pin(async move {
+                    if let Err(err) = write_to(tokio::io::stderr(), line.as_str()).await {
+                        error!("Could not forward server process output to stderr: {err}");
+                    }
+                    Next::Continue
+                })
+            }, LineParsingOptions::default());
+
             let port = self
                 .envs
                 .iter()
@@ -156,13 +200,19 @@ impl ServerProcess {
                     }
                 })
                 .unwrap_or_default();
-            info!("Serving at http://{port}");
-            cmd
+            info!(
+                "Serving at http://{port}{}",
+                match self.graceful_shutdown {
+                    true => " (with graceful shutdown)",
+                    false => " (graceful shutdown disabled)",
+                }
+            );
+            Some((handle, stdout_inspector, stderr_inspector))
         } else {
             debug!("Serve no exe found {}", GRAY.paint(bin.as_str()));
             None
         };
-        self.process = child;
+        self.process = process;
         Ok(())
     }
 }

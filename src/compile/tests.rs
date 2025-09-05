@@ -24,6 +24,7 @@ fn release_opts() -> Opts {
         split: false,
         frontend_only: false,
         server_only: false,
+        graceful_shutdown: true,
     }
 }
 fn dev_opts() -> Opts {
@@ -43,6 +44,7 @@ fn dev_opts() -> Opts {
         split: false,
         frontend_only: false,
         server_only: false,
+        graceful_shutdown: true,
     }
 }
 

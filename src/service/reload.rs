@@ -54,19 +54,32 @@ pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<()> {
 
             return;
         }
-        let route = Router::new().route("/live_reload", get(websocket_handler));
+        let router = Router::new().route("/live_reload", get(websocket_handler));
 
         debug!(
             "Reload server started {}",
             GRAY.paint(reload_addr.to_string())
         );
 
-        match TcpListener::bind(&reload_addr).await {
-            Ok(listener) => match axum::serve(listener, route).await {
-                Ok(_) => debug!("Reload server stopped"),
-                Err(e) => error!("Reload {e}"),
+        let tcp_listener = match TcpListener::bind(&reload_addr).await {
+            Ok(listener) => listener,
+            Err(e) => {
+                error!("Unable to bind TcpListener {e}");
+                return;
+            }
+        };
+
+        let serve = axum::serve(tcp_listener, router);
+
+        let mut int = Interrupt::subscribe_shutdown();
+
+        select! {
+            _ = serve => {
+                debug!("Reload server stopped")
             },
-            Err(e) => error!("Reload {e}"),
+            _ = int.recv() => {
+                debug!("Reload service received interrupt signal");
+            },
         }
     })
 }
