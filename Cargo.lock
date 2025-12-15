@@ -220,6 +220,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic-take"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8ab6b55fe97976e46f91ddbed8d147d966475dc29b2032757ba47e02376fbc3"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5558,10 +5564,11 @@ dependencies = [
 
 [[package]]
 name = "tokio-process-tools"
-version = "0.5.7"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1999b05bd9397d13218c4c5dbdff565501227bb9c461ddb3dd5ffeca4adea054"
+checksum = "6738ea9e7643337a0588153ee83d93d70ed67417418477f91c13ab86a7af9a1a"
 dependencies = [
+ "atomic-take",
  "bytes",
  "nix 0.30.1",
  "thiserror 2.0.17",

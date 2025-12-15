@@ -63,7 +63,7 @@ regex = "1.11.1"
 clap_complete = "4.5.55"
 wasm_split_cli_support = "0.2.0"
 clearscreen = "4.0.1"
-tokio-process-tools = "0.5.4"
+tokio-process-tools = "0.7.2"
 
 [dev-dependencies]
 insta = { version = "1.43", features = ["yaml"] }

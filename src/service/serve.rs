@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::{process::Command, select, task::JoinHandle};
 use tokio::io::AsyncWrite;
 use tokio_process_tools::broadcast::BroadcastOutputStream;
-use tokio_process_tools::{Inspector, LineParsingOptions, Next, ProcessHandle};
+use tokio_process_tools::{Inspector, LineParsingOptions, Next, Process, ProcessHandle};
 
 pub async fn spawn(proj: &Arc<Project>) -> JoinHandle<Result<()>> {
     let mut int = Interrupt::subscribe_shutdown();
@@ -158,7 +158,7 @@ impl ServerProcess {
             cmd.envs(self.envs.clone());
             cmd.args(bin_args);
 
-            let handle = ProcessHandle::<BroadcastOutputStream>::spawn("server", cmd)?;
+            let handle = Process::new(cmd).spawn_broadcast()?;
 
             async fn write_to<W: AsyncWrite + Unpin>(mut to: W, data: &str) -> tokio::io::Result<()> {
                 use tokio::io::AsyncWriteExt;
@@ -173,16 +173,18 @@ impl ServerProcess {
             // as writing to stdout/stderr directly using print!() could result in unhandled
             // "failed printing to stdout: Resource temporarily unavailable (os error 35)" errors.
             let stdout_inspector = handle.stdout().inspect_lines_async(|line| {
+                let line = line.to_string();
                 Box::pin(async move {
-                    if let Err(err) = write_to(tokio::io::stdout(), line.as_str()).await {
+                    if let Err(err) = write_to(tokio::io::stdout(), &line).await {
                         error!("Could not forward server process output to stdout: {err}");
                     }
                     Next::Continue
                 })
             }, LineParsingOptions::default());
             let stderr_inspector = handle.stderr().inspect_lines_async(|line| {
+                let line = line.to_string();
                 Box::pin(async move {
-                    if let Err(err) = write_to(tokio::io::stderr(), line.as_str()).await {
+                    if let Err(err) = write_to(tokio::io::stderr(), &line).await {
                         error!("Could not forward server process output to stderr: {err}");
                     }
                     Next::Continue
