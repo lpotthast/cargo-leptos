@@ -22,9 +22,10 @@ pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
         &renamed_files[&proj.lib.js_file.dest],
         &renamed_files,
         &pkg_dir,
+        false,
     );
 
-    if proj.split {
+    let wasm_split_hash = if proj.split {
         let old_wasm_split = proj
             .lib
             .js_file
@@ -33,7 +34,7 @@ pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
             .without_last()
             .join("__wasm_split.______________________.js");
         let new_wasm_split = &renamed_files[&old_wasm_split];
-        replace_in_file(new_wasm_split, &renamed_files, &pkg_dir);
+        replace_in_file(new_wasm_split, &renamed_files, &pkg_dir, false);
 
         let old_wasm_split_filename = old_wasm_split.file_name().unwrap();
         let new_wasm_split_filename = new_wasm_split.file_name().unwrap();
@@ -49,17 +50,38 @@ pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
                             old_wasm_split_filename,
                             new_wasm_split_filename,
                         );
+                    } else if filename.starts_with("__wasm_split_manifest") {
+                        replace_in_file(
+                            &Utf8PathBuf::try_from(path).unwrap(),
+                            &renamed_files,
+                            &pkg_dir,
+                            true,
+                        );
                     } else if filename.starts_with("__wasm_split") {
                         replace_in_file(
                             &Utf8PathBuf::try_from(path).unwrap(),
                             &renamed_files,
                             &pkg_dir,
+                            false,
                         );
                     }
                 }
             }
         }
-    }
+        Some(&files_to_hashes[&old_wasm_split])
+    } else {
+        None
+    };
+
+    let manifest_file = files_to_hashes
+        .iter()
+        .find_map(|(f, h)| (f.ends_with("__wasm_split_manifest.json")).then_some(h));
+    let manifest_file = manifest_file
+        .map(|f| format!("manifest: {f}\n"))
+        .unwrap_or_default();
+    let wasm_split_file = wasm_split_hash
+        .map(|f| format!("split: {f}\n"))
+        .unwrap_or_default();
 
     fs::create_dir_all(
         proj.hash_file
@@ -72,7 +94,7 @@ pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
     fs::write(
         &proj.hash_file.abs,
         format!(
-            "{}: {}\n{}: {}\n{}: {}\n",
+            "{}: {}\n{}: {}\n{}: {}\n{}{}",
             proj.lib
                 .js_file
                 .dest
@@ -90,7 +112,9 @@ pub fn add_hashes_to_site(proj: &Project) -> Result<()> {
                 .dest
                 .extension()
                 .ok_or(eyre!("no extension"))?,
-            files_to_hashes[&proj.style.site_file.dest]
+            files_to_hashes[&proj.style.site_file.dest],
+            manifest_file,
+            wasm_split_file
         ),
     )
     .wrap_err_with(|| format!("Failed to write hash file to {}", proj.hash_file.abs))?;
@@ -139,6 +163,14 @@ fn compute_front_file_hashes(proj: &Project) -> Result<HashMap<Utf8PathBuf, Stri
                     let hash = Base64UrlUnpadded::encode_string(
                         &Md5::new().chain_update(fs::read(&path)?).finalize(),
                     );
+
+                    if path
+                        .file_stem()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name == hash)
+                    {
+                        continue;
+                    }
 
                     files_to_hashes.insert(
                         Utf8PathBuf::from_path_buf(path).expect("invalid path"),
@@ -196,6 +228,7 @@ fn replace_in_file(
     path: &Utf8PathBuf,
     old_to_new_paths: &HashMap<Utf8PathBuf, Utf8PathBuf>,
     root_dir: &Utf8PathBuf,
+    omit_extension: bool,
 ) {
     let mut contents = fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("error {e}: could not read file {path}"));
@@ -208,7 +241,13 @@ fn replace_in_file(
             .strip_prefix(root_dir)
             .expect("could not strip root path");
 
-        contents = contents.replace(old_path.as_str(), new_path.as_str());
+        if omit_extension {
+            let old_path = old_path.as_str().trim_end_matches(".wasm");
+            let new_path = new_path.as_str().trim_end_matches(".wasm");
+            contents = contents.replace(old_path, new_path);
+        } else {
+            contents = contents.replace(old_path.as_str(), new_path.as_str());
+        }
     }
 
     fs::write(path, contents).expect("could not write file");

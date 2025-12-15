@@ -23,7 +23,6 @@ use tokio::{
     process::{Child, Command},
     task::JoinHandle,
 };
-use wasm_bindgen_cli_support::Bindgen;
 
 pub async fn front(
     proj: &Arc<Project>,
@@ -134,8 +133,16 @@ async fn bindgen(proj: &Project, all_wasm_files: &[Utf8PathBuf]) -> Result<Outco
 
     info!("Front generating JS/WASM with wasm-bindgen");
 
+    let wasm_file_input = if proj.split {
+        let mut source = proj.lib.wasm_file.source.clone();
+        source.set_file_name(format!("{}_split.wasm", source.file_stem().unwrap()));
+        source
+    } else {
+        proj.lib.wasm_file.source.clone()
+    };
+
     let start_time = tokio::time::Instant::now();
-    // see:
+    /* // see:
     // https://github.com/rustwasm/wasm-bindgen/blob/main/crates/cli-support/src/lib.rs#L95
     // https://github.com/rustwasm/wasm-bindgen/blob/main/crates/cli/src/bin/wasm-bindgen.rs#L13
     let mut bindgen = Bindgen::new()
@@ -143,80 +150,114 @@ async fn bindgen(proj: &Project, all_wasm_files: &[Utf8PathBuf]) -> Result<Outco
         .demangle(!proj.split)
         .debug(proj.wasm_debug)
         .keep_debug(proj.wasm_debug)
-        .input_path(&wasm_file.source)
+        .input_path(&wasm_file_input)
         .out_name(&proj.lib.output_name)
         .web(true)
         .dot_anyhow()?
         .generate_output()
-        .dot_anyhow()?;
+        .dot_anyhow()?; */
 
-    let bindgen_generate_end_time = tokio::time::Instant::now();
-
-    debug!(
-        "Finished generating wasm-bindgen output in {:?}",
-        bindgen_generate_end_time - start_time
-    );
-
-    bindgen
-        .emit(wasm_file.dest.clone().without_last())
-        .dot_anyhow()?;
-
-    let bindgen_emit_end_time = tokio::time::Instant::now();
-    debug!(
-        "Finished emitting wasm-bindgen in {:?}",
-        bindgen_emit_end_time - bindgen_generate_end_time
-    );
-
-    // rename emitted wasm output file name from {output_name}_bg.wasm to {output_name}.wasm for
-    // backward compatibility with leptos' `HydrationScripts`
-    fs::rename(
-        wasm_file
-            .dest
-            .clone()
-            .without_last()
-            .join(format!("{}_bg.wasm", &proj.lib.output_name)),
-        &wasm_file.dest,
-    )
+    let wasm_bindgen = Exe::WasmBindgen {
+        project_root: &proj.working_dir,
+    }
+    .get()
     .await
     .dot()?;
 
-    if proj.release {
-        for file in all_wasm_files {
-            optimize(proj, file).await?;
+    let args = [
+        Some("--target=web".to_string()),
+        proj.split.then(|| "--keep-lld-exports".into()),
+        proj.split.then(|| "--no-demangle".into()),
+        proj.wasm_debug.then(|| "--debug".into()),
+        proj.wasm_debug.then(|| "--keep-debug".into()),
+        Some(format!("--out-name={}", proj.lib.output_name)),
+        Some(format!(
+            "--out-dir={}",
+            wasm_file.dest.clone().without_last()
+        )),
+        Some(wasm_file_input.into()),
+    ]
+    .into_iter()
+    .flatten();
+
+    let mut cmd = Command::new(wasm_bindgen);
+    cmd.args(args.clone());
+
+    match wait_piped_interruptible(
+        "wasm-bindgen",
+        cmd,
+        crate::signal::Interrupt::subscribe_any(),
+    )
+    .await?
+    {
+        CommandResult::Interrupted => {
+            Ok(Outcome::Stopped)
+        },
+        CommandResult::Failure(output) => {
+            error!("wasm-bindgen failed with:");
+            println!("{}", output.stderr());
+            bail!("wasm-bindgen failed")
+        }
+        CommandResult::Success(_) => {
+            let bindgen_emit_end_time = tokio::time::Instant::now();
+            debug!(
+                "Finished emitting wasm-bindgen in {:?}",
+                bindgen_emit_end_time - start_time
+            );
+
+            // rename emitted wasm output file name from {output_name}_bg.wasm to {output_name}.wasm for
+            // backward compatibility with leptos' `HydrationScripts`
+            fs::rename(
+                wasm_file
+                    .dest
+                    .clone()
+                    .without_last()
+                    .join(format!("{}_bg.wasm", &proj.lib.output_name)),
+                &wasm_file.dest,
+            )
+            .await
+            .dot()?;
+
+            if proj.release {
+                for file in all_wasm_files {
+                    optimize(proj, file).await?;
+                }
+            }
+
+            let wasm_optimize_end_time = tokio::time::Instant::now();
+            debug!(
+                "Finished optimizing WASM in {:?}",
+                wasm_optimize_end_time - bindgen_emit_end_time
+            );
+
+            if proj.js_minify {
+                let js_file_name = wasm_file
+                    .dest
+                    .clone()
+                    .without_last()
+                    .join(format!("{}.js", &proj.lib.output_name));
+                let js = fs::read_to_string(&js_file_name).await?;
+                proj.site
+                    .updated_with(&proj.lib.js_file, minify(&js)?.as_bytes())
+                    .await
+                    .dot()?;
+
+                let js_minify_end_time = tokio::time::Instant::now();
+                debug!(
+                    "Finished minifying JS in {:?}",
+                    js_minify_end_time - wasm_optimize_end_time
+                );
+            };
+
+            let front_end_time = tokio::time::Instant::now();
+            info!(
+                "Finished generating JS/WASM for front in {:?}",
+                front_end_time - start_time
+            );
+
+            Ok(Outcome::Success(Product::Front))
         }
     }
-
-    let wasm_optimize_end_time = tokio::time::Instant::now();
-    debug!(
-        "Finished optimizing WASM in {:?}",
-        wasm_optimize_end_time - bindgen_emit_end_time
-    );
-
-    if proj.js_minify {
-        proj.site
-            .updated_with(&proj.lib.js_file, minify(bindgen.js())?.as_bytes())
-            .await
-            .dot()?
-    } else {
-        proj.site
-            .updated_with(&proj.lib.js_file, bindgen.js().as_bytes())
-            .await
-            .dot()?
-    };
-
-    let js_minify_end_time = tokio::time::Instant::now();
-    debug!(
-        "Finished minifying JS in {:?}",
-        js_minify_end_time - wasm_optimize_end_time
-    );
-
-    let front_end_time = tokio::time::Instant::now();
-    info!(
-        "Finished generating JS/WASM for front in {:?}",
-        front_end_time - start_time
-    );
-
-    Ok(Outcome::Success(Product::Front))
 }
 
 async fn optimize(proj: &Project, file: &Utf8Path) -> Result<()> {

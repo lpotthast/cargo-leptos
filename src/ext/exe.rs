@@ -1,5 +1,6 @@
 use crate::{config::VersionConfig, ext::Paint, internal_prelude::*, logger::GRAY};
 use bytes::Bytes;
+use camino::Utf8Path;
 use std::{
     borrow::Cow,
     fs::{self, File},
@@ -209,13 +210,14 @@ fn get_cache_dir() -> Result<PathBuf> {
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
-pub enum Exe {
+pub enum Exe<'a> {
     Sass,
     Tailwind,
     WasmOpt,
+    WasmBindgen { project_root: &'a Utf8Path },
 }
 
-impl Exe {
+impl Exe<'_> {
     pub async fn get(&self) -> Result<PathBuf> {
         let meta = self.meta().await?;
 
@@ -247,6 +249,10 @@ impl Exe {
                 .await
                 .dot()?,
             Exe::WasmOpt => CommandWasmOpt
+                .exe_meta(target_os, target_arch)
+                .await
+                .dot()?,
+            Exe::WasmBindgen { project_root } => CommandWasmBindgen { project_root }
                 .exe_meta(target_os, target_arch)
                 .await
                 .dot()?,
@@ -303,6 +309,9 @@ fn normalize_version(ver_string: &str) -> Option<Version> {
 struct CommandTailwind;
 struct CommandSass;
 struct CommandWasmOpt;
+struct CommandWasmBindgen<'a> {
+    project_root: &'a Utf8Path,
+}
 
 impl Command for CommandTailwind {
     fn name(&self) -> &'static str {
@@ -559,6 +568,127 @@ impl Command for CommandWasmOpt {
     }
 }
 
+impl Command for CommandWasmBindgen<'_> {
+    fn name(&self) -> &'static str {
+        "wasm-bindgen"
+    }
+    fn version(&self) -> Cow<'_, str> {
+        VersionConfig::WasmBindgen.version()
+    }
+    fn default_version(&self) -> &'static str {
+        VersionConfig::WasmBindgen.default_version()
+    }
+    fn env_var_version_name(&self) -> &'static str {
+        VersionConfig::WasmBindgen.env_var_version_name()
+    }
+    fn github_owner(&self) -> &'static str {
+        "wasm-bindgen"
+    }
+    fn github_repo(&self) -> &'static str {
+        "wasm-bindgen"
+    }
+
+    /// Tool binary download url for the given OS and platform arch
+    fn download_url(&self, target_os: &str, target_arch: &str, version: &str) -> Result<String> {
+        // https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.104/wasm-bindgen-0.2.104-aarch64-apple-darwin.tar.gz - ✅
+        // https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.104/wasm-bindgen-0.2.104-aarch64-unknown-linux-gnu.tar.gz - ✅
+        // https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.104/wasm-bindgen-0.2.104-aarch64-unknown-linux-musl.tar.gz - ✅
+        // https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.104/wasm-bindgen-0.2.104-x86_64-apple-darwin.tar.gz - ✅
+        // https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.104/wasm-bindgen-0.2.104-x86_64-pc-windows-msvc.tar.gz - ✅
+        // https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.104/wasm-bindgen-0.2.104-x86_64-unknown-linux-musl.tar.gz - ✅
+
+        let use_musl = is_linux_musl_env();
+
+        let base_url = format!(
+            "https://github.com/{}/{}/releases/download/{}/wasm-bindgen-{}",
+            self.github_owner(),
+            self.github_repo(),
+            version,
+            version
+        );
+        match (target_os, target_arch) {
+            ("windows", "x86_64") => Ok(format!("{base_url}-x86_64-pc-windows-msvc.tar.gz")),
+            ("macos", "x86_64") => Ok(format!("{base_url}-x86_64-apple-darwin.tar.gz")),
+            ("macos", "aarch64" | "arm64") => Ok(format!("{base_url}-aarch64-apple-darwin.tar.gz")),
+            ("linux", "aarch64" | "arm64") if use_musl => {
+                Ok(format!("{base_url}-aarch64-unknown-linux-musl.tar.gz"))
+            }
+            ("linux", "aarch64" | "arm64") if !use_musl => {
+                Ok(format!("{base_url}-aarch64-unknown-linux-gnu.tar.gz"))
+            }
+            ("linux", "x86_64") => Ok(format!("{base_url}-x86_64-unknown-linux-musl.tar.gz")),
+            _ => bail!(
+                "Command [{}] failed to find a match for {}-{} ",
+                self.name(),
+                target_os,
+                target_arch
+            ),
+        }
+    }
+
+    fn executable_name(&self, target_os: &str, target_arch: &str, version: &str) -> Result<String> {
+        let use_musl = is_linux_musl_env();
+        let base_name = format_args!("wasm-bindgen-{version}");
+        match (target_os, target_arch) {
+            ("windows", "x86_64") => Ok(format!(
+                "{base_name}-x86_64-pc-windows-msvc/wasm-bindgen.exe"
+            )),
+            ("macos", "x86_64") => Ok(format!("{base_name}-x86_64-apple-darwin/wasm-bindgen")),
+            ("macos", "aarch64" | "arm64") => {
+                Ok(format!("{base_name}-aarch64-apple-darwin/wasm-bindgen"))
+            }
+            ("linux", "aarch64" | "arm64") if use_musl => Ok(format!(
+                "{base_name}-aarch64-unknown-linux-musl/wasm-bindgen"
+            )),
+            ("linux", "aarch64" | "arm64") if !use_musl => Ok(format!(
+                "{base_name}-aarch64-unknown-linux-gnu/wasm-bindgen"
+            )),
+            ("linux", "x86_64") => Ok(format!(
+                "{base_name}-x86_64-unknown-linux-musl/wasm-bindgen"
+            )),
+            _ => bail!(
+                "Command [{}] failed to find a match for {}-{} ",
+                self.name(),
+                target_os,
+                target_arch
+            ),
+        }
+    }
+
+    fn manual_install_instructions(&self) -> String {
+        "Try manually installing wasm-bindgen: https://github.com/wasm-bindgen/wasm-bindgen/?tab=readme-ov-file#install-wasm-bindgen-cli".to_string()
+    }
+
+    /// Detects the `wasm-bindgen` version from the project's `Cargo.lock` file.
+    /// Returns `None` if the file doesn't exist, is malformed, or doesn't contain `wasm-bindgen`.
+    async fn detect_version_from_project(&self) -> Option<String> {
+        let lockfile_path = self.project_root.join("Cargo.lock");
+
+        if !lockfile_path.exists() {
+            debug!("Cargo.lock not found at {}", lockfile_path);
+            return None;
+        }
+
+        match cargo_lock::Lockfile::load(&lockfile_path) {
+            Ok(lockfile) => {
+                for package in &lockfile.packages {
+                    if package.name.as_str() == "wasm-bindgen" {
+                        let version = package.version.to_string();
+                        debug!("Found wasm-bindgen version {} in Cargo.lock", version);
+                        return Some(version);
+                    }
+                }
+                debug!("wasm-bindgen not found in Cargo.lock");
+                None
+            }
+            Err(e) => {
+                debug!("Failed to parse Cargo.lock: {}", e);
+                None
+            }
+        }
+    }
+}
+
 /// Template trait, implementors should only fill in
 /// the command-specific logic. Handles caching, latest
 /// version checking against the GitHub API and env var
@@ -735,7 +865,21 @@ trait Command {
             env::var(self.env_var_version_name())
         );
 
-        if !is_force_pin_version && !self.should_check_for_new_version().await {
+        if is_force_pin_version {
+            return self.version().to_string();
+        }
+
+        // Try to detect from project before falling back to default
+        if let Some(version) = self.detect_version_from_project().await {
+            info!(
+                "Using {} version {} detected in project",
+                self.name(),
+                version
+            );
+            return version;
+        }
+
+        if !self.should_check_for_new_version().await {
             trace!(
                 "Command [{}] NOT checking for the latest available version",
                 &self.name()
@@ -775,6 +919,10 @@ trait Command {
         }
 
         version.to_string()
+    }
+
+    async fn detect_version_from_project(&self) -> Option<String> {
+        None
     }
 }
 
